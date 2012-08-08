@@ -1,8 +1,8 @@
 diff --git a/fontforge/charview.c b/fontforge/charview.c
-index 16a5a6a..3b89ba6 100644
+index 242a6db..8ce0154 100644
 --- a/fontforge/charview.c
 +++ b/fontforge/charview.c
-@@ -293,6 +293,42 @@ return;
+@@ -295,6 +295,42 @@ return;
      GDrawSetLineWidth(pixmap,0);
      GDrawSetXORBase(pixmap,GDrawGetDefaultBackground(NULL));
      GDrawDrawLine(pixmap,x,y,xend,yend,oldoutlinecol);
@@ -45,7 +45,7 @@ index 16a5a6a..3b89ba6 100644
      GDrawSetCopyMode(pixmap);
  }
  
-@@ -3420,6 +3456,27 @@ int CVMouseAtSpline(CharView *cv,GEvent *event) {
+@@ -3467,6 +3503,27 @@ int CVMouseAtSpline(CharView *cv,GEvent *event) {
  return( InSplineSet(&fs,cv->b.layerheads[cv->b.drawmode]->splines,cv->b.sc->inspiro && hasspiro()));
  }
  
@@ -73,7 +73,7 @@ index 16a5a6a..3b89ba6 100644
  static GEvent *CVConstrainedMouseDown(CharView *cv,GEvent *event, GEvent *fake) {
      SplinePoint *base;
      spiro_cp *basecp;
-@@ -10386,6 +10443,9 @@ void CharViewFree(CharView *cv) {
+@@ -10557,6 +10614,9 @@ void CharViewFree(CharView *cv) {
      for ( i=0; i<cv->former_cnt; ++i )
  	free(cv->former_names[i]);
  
@@ -297,10 +297,10 @@ index 05d152b..ea17120 100644
  }
  
 diff --git a/fontforge/views.h b/fontforge/views.h
-index b726ccf..27e1f05 100644
+index cac0cf4..248c6fe 100644
 --- a/fontforge/views.h
 +++ b/fontforge/views.h
-@@ -172,6 +172,9 @@ typedef struct charview {
+@@ -173,6 +173,9 @@ typedef struct charview {
      GFont *small, *normal;
      GWindow icon;
      GWindow ruler_w;
@@ -310,7 +310,7 @@ index b726ccf..27e1f05 100644
      GFont *rfont;
      GTimer *pressed;
      GWindow backimgs;
-@@ -920,6 +923,7 @@ extern void CVMouseDownPointer(CharView *cv, FindSel *fs, GEvent *event);
+@@ -921,6 +924,7 @@ extern void CVMouseDownPointer(CharView *cv, FindSel *fs, GEvent *event);
  extern void CVMouseDownRuler(CharView *cv, GEvent *event);
  extern void CVMouseMoveRuler(CharView *cv, GEvent *event);
  extern int CVMouseAtSpline(CharView *cv,GEvent *event);
