@@ -1,0 +1,90 @@
+diff --git a/fontforge/charview.c b/fontforge/charview.c
+index 242a6db..dbd9b9c 100644
+--- a/fontforge/charview.c
++++ b/fontforge/charview.c
+@@ -3031,6 +3031,33 @@ static void CVCharUp(CharView *cv, GEvent *event ) {
+     #if defined(__MINGW32__)
+     if(event->u.chr.keysym==' ')
+ 	_mingw_hand_tool_hack(cv);
++    #else
++    if ( !event->u.chr.autorepeat && !HaveModifiers && event->u.chr.keysym==' ' ) {
++	if ( cv->spacebar_hold ) {
++	    cv->spacebar_hold = 0;
++	    if ( cv->b1_tool == cvt_hand ) {
++		cv->b1_tool = cv->b1_tool_old;
++	    }
++	} else {
++	    if ( cv->spacebar_hold_timer ) {
++		GDrawCancelTimer(cv->spacebar_hold_timer);
++		cv->spacebar_hold_timer = NULL;
++	    }
++	    /* now we must process the real space, this is hackish */
++	    {
++		SplineFont *sf = cv->b.sc->parent;
++		int i;
++		EncMap *map = cv->b.fv->map;
++		extern int cv_auto_goto;
++		if ( cv_auto_goto ) {
++		    i = SFFindSlot(sf,map,event->u.chr.keysym,NULL);
++		    if ( i!=-1 )
++			CVChangeChar(cv,i);
++		}
++	    }
++return;
++	}
++    }
+     #endif
+ 
+     if( !cv_auto_goto )
+@@ -4338,6 +4365,13 @@ static void CVTimer(CharView *cv,GEvent *event) {
+ 		GScrollBarSetPos(cv->hsb,-cv->xoff);
+ 	    GDrawRequestExpose(cv->v,NULL,false);
+ 	}
++    } else if ( event->u.timer.timer==cv->spacebar_hold_timer ) {
++	cv->spacebar_hold_timer = NULL;
++	cv->spacebar_hold = 1;
++	if ( cv->b1_tool != cvt_hand ) {
++	    cv->b1_tool_old = cv->b1_tool;
++	    cv->b1_tool = cvt_hand;
++	}
+ #if _ModKeysAutoRepeat
+ 	/* Under cygwin the modifier keys auto repeat, they don't under normal X */
+     } else if ( cv->autorpt==event->u.timer.timer ) {
+@@ -6142,6 +6176,15 @@ return;
+     #if defined(__MINGW32__)
+     if(event->u.chr.keysym==' ')
+ 	_mingw_hand_tool_hack(cv);
++    #else
++    if ( !HaveModifiers && event->u.chr.keysym==' ' ) {
++	if ( !cv->spacebar_hold ) {
++	    if ( !cv->spacebar_hold_timer ) {
++		cv->spacebar_hold_timer = GDrawRequestTimer(cv->v,500,0,NULL);
++	    }
++	}
++return;
++    }
+     #endif
+ 
+     CVPaletteActivate(cv);
+@@ -10377,6 +10420,8 @@ static void _CharViewCreate(CharView *cv, SplineChar *sc, FontView *fv,int enc)
+     cv->er_tool = cvt_knife;
+     cv->showing_tool = cvt_pointer;
+     cv->pressed_tool = cv->pressed_display = cv->active_tool = cvt_none;
++    cv->spacebar_hold = 0;
++    cv->spacebar_hold_timer = NULL;
+     cv->b.layerheads[dm_fore] = &sc->layers[ly_fore];
+     cv->b.layerheads[dm_back] = &sc->layers[ly_back];
+     cv->b.layerheads[dm_grid] = &fv->b.sf->grid;
+diff --git a/fontforge/views.h b/fontforge/views.h
+index cac0cf4..14e833d 100644
+--- a/fontforge/views.h
++++ b/fontforge/views.h
+@@ -202,6 +202,8 @@ typedef struct charview {
+     int8 b1_tool_old;				/* Used by mingw port */
+     int8 s1_tool, s2_tool, er_tool;		/* Bindings for wacom stylus and eraser */
+     int8 showing_tool, pressed_tool, pressed_display, had_control, active_tool;
++    int8 spacebar_hold;				/* spacebar is held down */
++    GTimer *spacebar_hold_timer;		/* to detect hold of spacebar */
+     SplinePointList *active_spl;
+     SplinePoint *active_sp;
+     spiro_cp *active_cp;
