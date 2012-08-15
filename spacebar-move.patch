@@ -1,90 +1,233 @@
 diff --git a/fontforge/charview.c b/fontforge/charview.c
-index 242a6db..dbd9b9c 100644
+index 75c862e..e87ecfe 100644
 --- a/fontforge/charview.c
 +++ b/fontforge/charview.c
-@@ -3031,6 +3031,33 @@ static void CVCharUp(CharView *cv, GEvent *event ) {
-     #if defined(__MINGW32__)
-     if(event->u.chr.keysym==' ')
- 	_mingw_hand_tool_hack(cv);
-+    #else
-+    if ( !event->u.chr.autorepeat && !HaveModifiers && event->u.chr.keysym==' ' ) {
-+	if ( cv->spacebar_hold ) {
-+	    cv->spacebar_hold = 0;
-+	    if ( cv->b1_tool == cvt_hand ) {
-+		cv->b1_tool = cv->b1_tool_old;
-+	    }
-+	} else {
-+	    if ( cv->spacebar_hold_timer ) {
-+		GDrawCancelTimer(cv->spacebar_hold_timer);
-+		cv->spacebar_hold_timer = NULL;
-+	    }
-+	    /* now we must process the real space, this is hackish */
-+	    {
-+		SplineFont *sf = cv->b.sc->parent;
-+		int i;
-+		EncMap *map = cv->b.fv->map;
-+		extern int cv_auto_goto;
-+		if ( cv_auto_goto ) {
-+		    i = SFFindSlot(sf,map,event->u.chr.keysym,NULL);
-+		    if ( i!=-1 )
-+			CVChangeChar(cv,i);
-+		}
-+	    }
-+return;
-+	}
-+    }
-     #endif
+@@ -44,24 +44,6 @@ extern int _GScrollBar_Width;
+ #undef H_
+ #define H_(str) ("CV*" str)
  
-     if( !cv_auto_goto )
-@@ -4338,6 +4365,13 @@ static void CVTimer(CharView *cv,GEvent *event) {
- 		GScrollBarSetPos(cv->hsb,-cv->xoff);
- 	    GDrawRequestExpose(cv->v,NULL,false);
- 	}
-+    } else if ( event->u.timer.timer==cv->spacebar_hold_timer ) {
-+	cv->spacebar_hold_timer = NULL;
-+	cv->spacebar_hold = 1;
-+	if ( cv->b1_tool != cvt_hand ) {
+-#if defined(__MINGW32__)
+-#include <Windows.h>
+-#undef PrintDlg
+-#undef small
+-static void _mingw_hand_tool_hack(CharView* cv){
+-    if(GetAsyncKeyState(VK_SPACE) & 0x8000){
+-	if(cv->b1_tool != cvt_hand){
+-	    cv->b1_tool_old = cv->b1_tool;
+-	    cv->b1_tool = cvt_hand;
+-	}
+-    }
+-    else{
+-	if(cv->b1_tool == cvt_hand){
+-	    cv->b1_tool = cv->b1_tool_old;
+-	}
+-    }
+-}
+-#endif
+ 
+ int ItalicConstrained=true;
+ int cv_auto_goto = true;
+@@ -216,6 +198,28 @@ static struct resed charview2_re[] = {
+     RESED_EMPTY
+ };
+ 
++/* return 1 if anything changed */
++static int update_spacebar_hand_tool(CharView *cv) {
++    if ( GDrawKeyState(' ') ) {
++	if ( !cv->spacebar_hold  && !cv_auto_goto ) {
++	    cv->spacebar_hold = 1;
 +	    cv->b1_tool_old = cv->b1_tool;
 +	    cv->b1_tool = cvt_hand;
++	    cv->active_tool = cvt_hand;
++	    CVMouseDownHand(cv);
++return 1;
 +	}
- #if _ModKeysAutoRepeat
- 	/* Under cygwin the modifier keys auto repeat, they don't under normal X */
-     } else if ( cv->autorpt==event->u.timer.timer ) {
-@@ -6142,6 +6176,15 @@ return;
-     #if defined(__MINGW32__)
-     if(event->u.chr.keysym==' ')
- 	_mingw_hand_tool_hack(cv);
-+    #else
-+    if ( !HaveModifiers && event->u.chr.keysym==' ' ) {
-+	if ( !cv->spacebar_hold ) {
-+	    if ( !cv->spacebar_hold_timer ) {
-+		cv->spacebar_hold_timer = GDrawRequestTimer(cv->v,500,0,NULL);
-+	    }
++    } else {
++	if ( cv->spacebar_hold ) {
++	    cv->spacebar_hold = 0;
++	    cv->b1_tool = cv->b1_tool_old;
++	    cv->active_tool = cvt_none;
++return 1;
 +	}
-+return;
 +    }
-     #endif
++return 0;
++}
++
+ /* floor(pt) would _not_ be more correct, as we want
+  * shapes not to cross axes multiple times while scaling.
+  */
+@@ -3029,10 +3033,9 @@ static uint16 PrevCharEventWasCharUpOnControl = 0;
+ 
+ static void CVCharUp(CharView *cv, GEvent *event ) {
+ 
+-    #if defined(__MINGW32__)
+-    if(event->u.chr.keysym==' ')
+-	_mingw_hand_tool_hack(cv);
+-    #endif
++    if ( !event->u.chr.autorepeat && !HaveModifiers && event->u.chr.keysym==' ' ) {
++	update_spacebar_hand_tool(cv);
++    }
+ 
+     if( !cv_auto_goto )
+     {
+@@ -3665,9 +3668,7 @@ return;		/* I treat this more like a modifier key change than a button press */
+ return;
+     }
+ 
+-    #if defined(__MINGW32__)
+-    _mingw_hand_tool_hack(cv);
+-    #endif
++    update_spacebar_hand_tool(cv); /* needed?  (left from MINGW) */
+ 
+     CVToolsSetCursor(cv,event->u.mouse.state|(1<<(7+event->u.mouse.button)), event->u.mouse.device );
+     cv->active_tool = cv->showing_tool;
+@@ -3974,18 +3975,21 @@ static void CVMouseMove(CharView *cv, GEvent *event ) {
+     GEvent fake;
+     int stop_motion = false;
+     int has_spiro = hasspiro();
++    int spacebar_changed;
+ 
+ #if 0		/* Debug wacom !!!! */
+  printf( "dev=%s (%d,%d) 0x%x\n", event->u.mouse.device!=NULL?event->u.mouse.device:"<None>",
+      event->u.mouse.x, event->u.mouse.y, event->u.mouse.state);
+ #endif
+ 
+-    if ( event->u.mouse.device!=NULL )
++    spacebar_changed = update_spacebar_hand_tool(cv);
++
++    if ( event->u.mouse.device!=NULL || spacebar_changed )
+ 	CVToolsSetCursor(cv,event->u.mouse.state,event->u.mouse.device);
+ 
+-    if ( !cv->p.pressed ) {
++    if ( !cv->p.pressed && !cv->spacebar_hold ) {
+ 	CVUpdateInfo(cv, event);
+-	if ( cv->showing_tool == cvt_pointer ) {
++	if ( cv->showing_tool==cvt_pointer ) {
+ 	    CVCheckResizeCursors(cv);
+ 	    if ( cv->dv!=NULL )
+ 		CVDebugPointPopup(cv);
+@@ -4235,9 +4239,7 @@ static void CVMouseUp(CharView *cv, GEvent *event ) {
+     }
+     cv->p.pressed = false;
+ 
+-    #if defined(__MINGW32__)
+-    _mingw_hand_tool_hack(cv);
+-    #endif
++    update_spacebar_hand_tool(cv); /* needed? (left from MINGW) */
+ 
+     if ( cv->p.rubberbanding ) {
+ 	CVDrawRubberRect(cv->v,cv);
+@@ -4440,7 +4442,7 @@ return( GGadgetDispatchEvent(cv->vsb,event));
+ 	CVMouseDown(cv,event);
+       break;
+       case et_mousemove:
+-	if ( cv->p.pressed )
++	if ( cv->p.pressed || cv->spacebar_hold)
+ 	    GDrawSkipMouseMoveEvents(cv->v,event);
+ 	CVMouseMove(cv,event);
+       break;
+@@ -6138,10 +6140,11 @@ return;
+     }
+ #endif
+ 
+-    #if defined(__MINGW32__)
+-    if(event->u.chr.keysym==' ')
+-	_mingw_hand_tool_hack(cv);
+-    #endif
++    if ( !HaveModifiers && event->u.chr.keysym==' ' && cv->spacebar_hold==0 ) {
++	cv->p.x = event->u.mouse.x;
++	cv->p.y = event->u.mouse.y;
++	update_spacebar_hand_tool(cv);
++    }
  
      CVPaletteActivate(cv);
-@@ -10377,6 +10420,8 @@ static void _CharViewCreate(CharView *cv, SplineChar *sc, FontView *fv,int enc)
+     CVToolsSetCursor(cv,TrueCharState(event),NULL);
+@@ -6266,9 +6269,7 @@ return;
+ 	CVVScroll(cv,&sb);
+     } else if ( event->u.chr.keysym == GK_Home ) {
+ 	CVFit(cv);
+-    #if defined(__MINGW32__)
+-    } else if ( event->u.chr.keysym == ' '){
+-    #endif
++    } else if ( event->u.chr.keysym==' ' && cv->spacebar_hold ){
+     } else if ( (event->u.chr.state&((GMenuMask()|navigation_mask)&~(ksm_shift|ksm_capslock)))==navigation_mask &&
+ 	    event->type == et_char &&
+ 	    event->u.chr.keysym!=0 &&
+@@ -10376,6 +10377,7 @@ static void _CharViewCreate(CharView *cv, SplineChar *sc, FontView *fv,int enc)
      cv->er_tool = cvt_knife;
      cv->showing_tool = cvt_pointer;
      cv->pressed_tool = cv->pressed_display = cv->active_tool = cvt_none;
 +    cv->spacebar_hold = 0;
-+    cv->spacebar_hold_timer = NULL;
      cv->b.layerheads[dm_fore] = &sc->layers[ly_fore];
      cv->b.layerheads[dm_back] = &sc->layers[ly_back];
      cv->b.layerheads[dm_grid] = &fv->b.sf->grid;
 diff --git a/fontforge/views.h b/fontforge/views.h
-index cac0cf4..14e833d 100644
+index d2597bb..12794bc 100644
 --- a/fontforge/views.h
 +++ b/fontforge/views.h
-@@ -202,6 +202,8 @@ typedef struct charview {
+@@ -202,6 +202,7 @@ typedef struct charview {
      int8 b1_tool_old;				/* Used by mingw port */
      int8 s1_tool, s2_tool, er_tool;		/* Bindings for wacom stylus and eraser */
      int8 showing_tool, pressed_tool, pressed_display, had_control, active_tool;
 +    int8 spacebar_hold;				/* spacebar is held down */
-+    GTimer *spacebar_hold_timer;		/* to detect hold of spacebar */
      SplinePointList *active_spl;
      SplinePoint *active_sp;
      spiro_cp *active_cp;
+diff --git a/gdraw/gxdraw.c b/gdraw/gxdraw.c
+index 99e014a..17480e1 100644
+--- a/gdraw/gxdraw.c
++++ b/gdraw/gxdraw.c
+@@ -1154,6 +1154,18 @@ static char*  mingw_get_wm_name_utf8(Display* display, Window window){
+     }
+     return NULL;
+ }
++
++#undef PrintDlg
++#undef small
++int GDrawKeyState(int keysym) {
++    /* TBD, translation of GK_ to VK_ */
++
++    if (GetAsyncKeyState(kysym) & 0x8000)
++return 1;
++    else
++return 0;
++}
++
+ #endif
+ 
+ static GWindow _GXDraw_CreateWindow(GXDisplay *gdisp, GXWindow gw, GRect *pos,
+@@ -5064,6 +5076,22 @@ void _XSyncScreen() {
+     XSync(((GXDisplay *) screen_display)->display,false);
+ }
+ 
++int GDrawKeyState(int keysym) {
++    /* TBD, translation of GK_ to XK_ */
++    char key_map_stat[32];
++    Display *xdisplay = ((GXDisplay *)screen_display)->display;
++    KeyCode code;
++
++    XQueryKeymap(xdisplay, key_map_stat);
++
++    code = XKeysymToKeycode(xdisplay, keysym);
++    if ( !code ) {
++abort();
++return 0;
++    }
++return ((key_map_stat[code >> 3] >> (code & 7)) & 1);
++}
++
+ #else	/* NO X */
+ 
+ GDisplay *_GXDraw_CreateDisplay(char *displayname,char *programname) {
+diff --git a/inc/gdraw.h b/inc/gdraw.h
+index 3475f42..5a6ad90 100644
+--- a/inc/gdraw.h
++++ b/inc/gdraw.h
+@@ -536,6 +536,7 @@ extern int  GDrawLayoutLineStart(GWindow w,int line);
+ extern void GDrawFatalError(const char *fmt,...);
+ extern void GDrawIError(const char *fmt,...);
+ extern void GDrawError(const char *fmt,...);
++extern int GDrawKeyState(int keysym);
+ 
+ extern int GImageGetScaledWidth(GWindow gw, GImage *img);
+ extern int GImageGetScaledHeight(GWindow gw, GImage *img);
