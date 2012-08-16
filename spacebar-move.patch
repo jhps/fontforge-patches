@@ -174,7 +174,7 @@ index d2597bb..12794bc 100644
      SplinePoint *active_sp;
      spiro_cp *active_cp;
 diff --git a/gdraw/gxdraw.c b/gdraw/gxdraw.c
-index 99e014a..17480e1 100644
+index 99e014a..1a54e25 100644
 --- a/gdraw/gxdraw.c
 +++ b/gdraw/gxdraw.c
 @@ -1154,6 +1154,18 @@ static char*  mingw_get_wm_name_utf8(Display* display, Window window){
@@ -196,10 +196,11 @@ index 99e014a..17480e1 100644
  #endif
  
  static GWindow _GXDraw_CreateWindow(GXDisplay *gdisp, GXWindow gw, GRect *pos,
-@@ -5064,6 +5076,22 @@ void _XSyncScreen() {
+@@ -5064,6 +5076,24 @@ void _XSyncScreen() {
      XSync(((GXDisplay *) screen_display)->display,false);
  }
  
++#if !defined(__MINGW32__)
 +int GDrawKeyState(int keysym) {
 +    /* TBD, translation of GK_ to XK_ */
 +    char key_map_stat[32];
@@ -215,6 +216,7 @@ index 99e014a..17480e1 100644
 +    }
 +return ((key_map_stat[code >> 3] >> (code & 7)) & 1);
 +}
++#endif
 +
  #else	/* NO X */
  
