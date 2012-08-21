@@ -1,0 +1,304 @@
+diff --git a/fontforge/charview.c b/fontforge/charview.c
+index 2fe8d34..a4b7cc1 100644
+--- a/fontforge/charview.c
++++ b/fontforge/charview.c
+@@ -2439,7 +2439,7 @@ static void CVExpose(CharView *cv, GWindow pixmap, GEvent *event ) {
+ 	    /* Then when we moved the fill image around, we had to deal with the */
+ 	    /*  images before the fill... */
+ 	    CVDrawLayerSplineSet(cv,pixmap,&cv->b.sc->layers[layer],
+-		    !sf->multilayer || layer==ly_back ? backoutlinecol : foreoutlinecol,
++		    cv->b.sc->parent->layers[layer].color,
+ 		    false,&clip,false);
+ 	    for ( rf=cv->b.sc->layers[layer].refs; rf!=NULL; rf = rf->next ) {
+ 		if ( /* cv->b.drawmode==dm_back &&*/ cv->showrefnames )
+@@ -2498,7 +2498,9 @@ static void CVExpose(CharView *cv, GWindow pixmap, GEvent *event ) {
+ 		CVDrawBB(cv,pixmap,&rf->bb);
+ 	}
+     }
+-    CVDrawLayerSplineSet(cv,pixmap,&cv->b.sc->layers[layer],foreoutlinecol,
++
++    if (layer >= 0)
++	CVDrawLayerSplineSet(cv,pixmap,&cv->b.sc->layers[layer],foreoutlinecol,
+ 			 cv->showpoints ,&clip,strokeFillMode);
+ 
+     if ( cv->freehand.current_trace!=NULL )
+diff --git a/fontforge/cvpalettes.c b/fontforge/cvpalettes.c
+index b060e34..ad99bdb 100644
+--- a/fontforge/cvpalettes.c
++++ b/fontforge/cvpalettes.c
+@@ -26,6 +26,11 @@
+  */
+ #include "fontforgeui.h"
+ 
++struct layercolorbuttoninfo {
++    CharView *cv;
++    int layer;
++};
++
+ int palettes_docked=1;
+ int rectelipse=0, polystar=0, regular_star=1;
+ int center_out[2] = { false, true };
+@@ -1265,6 +1270,11 @@ return( cvtools );
+ #define CID_VBack	(CID_VBase+ly_back)
+ #define CID_VFore	(CID_VBase+ly_fore)
+ 
++#define CID_CBase	2000		/* layer color */
++#define CID_CGrid	(CID_CBase+ly_grid)
++#define CID_CBack	(CID_CBase+ly_back)
++#define CID_CFore	(CID_CBase+ly_fore)
++
+ #define CID_EBase	3000
+ #define CID_EGrid	(CID_EBase+ly_grid)
+ #define CID_EBack	(CID_EBase+ly_back)
+@@ -1852,7 +1862,7 @@ static void LayersExpose(CharView *cv,GWindow pixmap,GEvent *event) {
+ 
+     int yt = .7*layer_height; /* vertical spacer to add when drawing text in the row */
+     int column_width;
+-    int viscol=7, quadcol, fgcol, editcol;
++    int nextcol=7, viscol, colorcol, quadcol, fgcol, editcol;
+ 
+     if ( event->u.expose.rect.y+event->u.expose.rect.height<layer_header_height )
+ return;
+@@ -1870,10 +1880,20 @@ return;
+     base.trans = -1;
+     GDrawSetFont(pixmap,layerinfo.font);
+ 
+-    quadcol=fgcol=viscol;
+-    if ( layerscols & LSHOW_CUBIC ) { quadcol = viscol+column_width; fgcol=viscol+column_width; } /* show quad col */
+-    if ( layerscols & LSHOW_FG    ) { fgcol = quadcol+column_width; } /* show fg col */
+-    editcol=fgcol+column_width;
++    viscol = nextcol;
++    nextcol += column_width;
++    colorcol = nextcol;
++    nextcol += column_width;
++    if ( layerscols & LSHOW_CUBIC ) {  /* show quad col */
++	quadcol = nextcol;
++	nextcol += column_width;
++    }
++    if ( layerscols & LSHOW_FG    ) {  /* show fg col */
++	fgcol = nextcol;
++	nextcol += column_width;
++    }
++    editcol = nextcol;
++    nextcol += column_width;
+ 
+      /* loop once per layer, where 0==guides, 1=back, 2=fore, etc */
+     for ( i=(event->u.expose.rect.y-layer_header_height)/layer_height;
+@@ -1967,6 +1987,19 @@ static void CVLRemoveEdit(CharView *cv, int save) {
+     }
+ }
+ 
++static int LPCB_LayerColorChanged(GGadget *g, GEvent *e) {
++    Color col = GColorButtonGetColor(g);
++    struct layercolorbuttoninfo *info = GGadgetGetUserData(g);
++
++    if ( info->layer >= 0 )
++	info->cv->b.sc->parent->layers[info->layer].color = col;
++
++    /* we don't actually care currently which layer color has changed */
++    GDrawRequestExpose(info->cv->v,NULL,false);
++
++return( true );
++}
++
+  /* Make sure we've got the right number of gadgets in the layers palette, and that
+   * they are positioned properly. Their state are updated in CVLayers1Set().
+   * If resize, then make the palette fit the layers up to a max number of layers. */
+@@ -1983,15 +2016,25 @@ static void CVLCheckLayerCount(CharView *cv, int resize) {
+     int x, y;
+     int column_width = layerinfo.column_width;
+     char namebuf[40];
+-    int viscol=7, quadcol, fgcol, editcol;
++    int nextcol=7, viscol, colorcol, quadcol, fgcol, editcol;
+     extern int _GScrollBar_Width;
+ 
+     if (layerinfo.rename_active) CVLRemoveEdit(cv,true);
+ 
+-    quadcol=fgcol=viscol;
+-    if ( layerscols & LSHOW_CUBIC ) { quadcol = viscol+column_width; fgcol=viscol+column_width; }
+-    if ( layerscols & LSHOW_FG    ) { fgcol = quadcol+column_width; }
+-    editcol = fgcol+column_width;
++    viscol = nextcol;
++    nextcol += column_width;
++    colorcol = nextcol;
++    nextcol += column_width;
++    if ( layerscols & LSHOW_CUBIC ) {
++	quadcol = nextcol;
++	nextcol += column_width;
++    }
++    if ( layerscols & LSHOW_FG ) {
++	fgcol = nextcol;
++	nextcol += column_width;
++    }
++    editcol = nextcol;
++    nextcol += column_width;
+ 
+     /* First figure out if we need to create any new widgets. If we have more */
+     /* widgets than we need, we just set them to be invisible.                */
+@@ -1999,6 +2042,8 @@ static void CVLCheckLayerCount(CharView *cv, int resize) {
+ 	memset(&label,0,sizeof(label));
+ 	memset(&gcd,0,sizeof(gcd));
+ 	for ( i=layers_max; i<sc->layer_cnt; ++i ) {
++	    struct layercolorbuttoninfo *info;
++
+ 	     /* for each new layer, create new widgets */
+ 
+ 	     /* Visibility toggle */
+@@ -2007,6 +2052,22 @@ static void CVLCheckLayerCount(CharView *cv, int resize) {
+ 	    gcd[0].gd.popup_msg = (unichar_t *) _("Is Layer Visible?");
+ 	    gcd[0].creator = GVisibilityBoxCreate;
+ 
++	     /* Color */
++	    gcd[1].gd.flags = gg_enabled|gg_utf8_popup;
++	    gcd[1].gd.cid = CID_CBase+i;
++	    gcd[1].gd.popup_msg = (unichar_t *) _("Color");
++	    gcd[1].gd.u.col = sc->parent->layers[i].color;
++	    gcd[1].gd.pos.width = 10;
++	    gcd[1].gd.pos.height = 10;
++	    gcd[i].gd.flags |= gg_pos_in_pixels;
++	    gcd[1].creator = GColorButtonCreate;
++	    gcd[1].gd.handle_controlevent = LPCB_LayerColorChanged;
++	    /* TBD this is never freed */
++	    info = galloc(sizeof(struct layercolorbuttoninfo));
++	    info->cv = cv;
++	    info->layer = i;
++	    gcd[1].data = info;
++
+ 	    GGadgetsCreate(cvlayers,gcd);
+ 	}
+ 	layers_max = sc->layer_cnt;
+@@ -2040,11 +2101,13 @@ static void CVLCheckLayerCount(CharView *cv, int resize) {
+      /* Now position each layer row */
+     for ( i=-1; i<layers_max; ++i ) {
+ 	GGadget *v = GWidgetGetControl(cvlayers,CID_VBase+i);
++	GGadget *c = GWidgetGetControl(cvlayers,CID_CBase+i);
+ 
+         width=0;
+         togsize=viscol;
+         GGadgetGetSize(v,&size);
+-        togsize+=size.width; /* makes togsize  == the right edge of the visibility column */
++        if (c) GGadgetGetSize(c,&size);
++        togsize+=size.width; /* makes togsize  == the right edge of the visibility or color column */
+         if ( layerscols & LSHOW_CUBIC ) { togsize += column_width; } /* Quadratic column */
+         if ( layerscols & LSHOW_FG    ) { togsize += column_width; } /* fg/bg column     */
+ 
+@@ -2068,9 +2131,12 @@ static void CVLCheckLayerCount(CharView *cv, int resize) {
+ 		(sc->layer_cnt<=layerinfo.visible_layers && i>=sc->layer_cnt)) {
+              /* layer is currently scrolled out of palette */
+ 	    GGadgetSetVisible(v,false);
++	    if (c) GGadgetSetVisible(c,false);
+ 	} else {
+ 	    GGadgetMove(v,viscol ,y);
++	    if (c) GGadgetMove(c,colorcol ,y);
+ 	    GGadgetSetVisible(v,true);
++	    if (c) GGadgetSetVisible(c,true);
+ 	    y += layer_height;
+ 	}
+     }
+@@ -2407,16 +2473,18 @@ static void LayerMenu(CharView *cv,GEvent *event, int nolayer) {
+ /* col will be set to either -1 for none, CID_VBase, CID_QBase, CID_FBase, or CID_EBase */
+ static int CVLScanForItem(int x, int y, int *col) {
+     int l=(y-layer_header_height)/layer_height + layerinfo.offtop - 1;
+-    int viscol=7, quadcol, fgcol, editcol;
++    int viscol=7, colorcol, quadcol, fgcol, editcol;
+     int cw=layerinfo.column_width;
+ 
+     quadcol=fgcol=viscol;
+-    if ( layerscols & LSHOW_CUBIC ) { quadcol = viscol+cw; fgcol=viscol+cw; }
++    colorcol = viscol + cw;
++    if ( layerscols & LSHOW_CUBIC ) { quadcol = colorcol+cw; fgcol=colorcol+cw; }
+     if ( layerscols & LSHOW_FG    ) { fgcol = quadcol+cw; }
+     editcol=fgcol+cw;
+ 
+     *col=-1;
+     if ( x>0 && x<viscol+cw ) *col=CID_VBase;
++    else if ( x>=colorcol && x<colorcol+cw ) *col=CID_CBase;
+     else if ( (layerscols & LSHOW_CUBIC) && x>=quadcol && x<quadcol+cw ) *col=CID_QBase;
+     else if ( (layerscols & LSHOW_FG) && x>=fgcol && x<fgcol+cw ) *col=CID_FBase;
+     else if ( x>=editcol ) *col=CID_EBase;
+@@ -2793,6 +2861,8 @@ GWindow CVMakeLayers(CharView *cv) {
+     extern int _GScrollBar_Width;
+     int i=0;
+     int viscol=7;
++    int colorcol=viscol + layerinfo.column_width;
++    struct layercolorbuttoninfo *info;
+ 
+     if ( cvlayers!=NULL )
+ return( cvlayers );
+@@ -2890,6 +2960,35 @@ return( cvlayers );
+     gcd[i].creator = GVisibilityBoxCreate;
+     ++i;
+ 
++    gcd[i].gd.pos.x = colorcol; gcd[i].gd.pos.y = 21;
++    gcd[i].gd.pos.width = 10; gcd[i].gd.pos.height = 10;
++    gcd[i].gd.flags = gg_enabled|gg_visible|gg_dontcopybox|gg_pos_in_pixels|gg_utf8_popup;
++    gcd[i].gd.cid = CID_CBack;
++    gcd[i].gd.u.col = cv->b.sc->parent->layers[0].color;
++    gcd[i].gd.popup_msg = (unichar_t *) _("Color");
++    gcd[i].creator = GColorButtonCreate;
++    gcd[i].gd.handle_controlevent = LPCB_LayerColorChanged;
++    /* TBD this is never freed */
++    info = galloc(sizeof(struct layercolorbuttoninfo));
++    info->cv = cv;
++    info->layer = 0;
++    gcd[i].data = info;
++    ++i;
++
++    gcd[i].gd.pos.x = colorcol; gcd[i].gd.pos.y = 21;
++    gcd[i].gd.pos.width = 10; gcd[i].gd.pos.height = 10;
++    gcd[i].gd.flags = gg_enabled|gg_visible|gg_dontcopybox|gg_pos_in_pixels|gg_utf8_popup;
++    gcd[i].gd.cid = CID_CFore;
++    gcd[i].gd.u.col = cv->b.sc->parent->layers[1].color;
++    gcd[i].gd.popup_msg = (unichar_t *) _("Color");
++    gcd[i].creator = GColorButtonCreate;
++    gcd[i].gd.handle_controlevent = LPCB_LayerColorChanged;
++    /* TBD this is never freed */
++    info = galloc(sizeof(struct layercolorbuttoninfo));
++    info->cv = cv;
++    info->layer = 1;
++    gcd[i].data = info;
++    ++i;
+ 
+      /* Scroll bar */
+     gcd[i].gd.pos.width = GDrawPointsToPixels(cv->gw,_GScrollBar_Width);
+diff --git a/fontforge/sfd.c b/fontforge/sfd.c
+index 455bfe9..e66508c 100644
+--- a/fontforge/sfd.c
++++ b/fontforge/sfd.c
+@@ -1847,7 +1847,9 @@ static int SFD_Dump(FILE *sfd,SplineFont *sf,EncMap *map,EncMap *normal,
+     for ( i=0; i<sf->layer_cnt; ++i ) {
+ 	fprintf( sfd, "Layer: %d %d ", i, sf->layers[i].order2/*, sf->layers[i].background*/ );
+ 	SFDDumpUTF7Str(sfd,sf->layers[i].name);
+-	fprintf( sfd, " %d\n", sf->layers[i].background );
++	fprintf( sfd, " %d", sf->layers[i].background );
++	fprintf( sfd, " %x", sf->layers[i].color );
++	fprintf( sfd, "\n" );
+     }
+     if ( sf->strokedfont )
+ 	fprintf(sfd, "StrokedFont: %d\n", sf->strokedfont );
+@@ -6484,6 +6486,13 @@ static SplineFont *SFD_GetFont(FILE *sfd,SplineFont *cidmaster,char *tok,
+ 		getint(sfd,&bk);
+ 		sf->layers[layer].background = bk;
+ 	    }
++	    while ( (ch=nlgetc(sfd))==' ' );
++	    ungetc(ch,sfd);
++	    if ( ch!='\n' ) {
++		Color c = 0;
++		gethex(sfd,&c);
++		sf->layers[layer].color = c;
++	    }
+ 	} else if ( strmatch(tok,"StrokedFont:")==0 ) {
+ 	    int temp;
+ 	    getint(sfd,&temp);
+diff --git a/fontforge/splinefont.h b/fontforge/splinefont.h
+index 2ed8e5e..1c24af5 100644
+--- a/fontforge/splinefont.h
++++ b/fontforge/splinefont.h
+@@ -1577,6 +1577,7 @@ typedef struct layerinfo {
+     unsigned int order2: 1;			/* Layer's data are order 2 bezier splines (truetype) rather than order 3 (postscript) */
+ 						/* In all glyphs in the font */
+     unsigned int ticked: 1;
++    uint32 color;
+ } LayerInfo;
+ 
+ /* Baseline data from the 'BASE' table */
